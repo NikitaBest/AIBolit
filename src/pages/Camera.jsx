@@ -12,12 +12,36 @@ function Camera() {
   const canvasRef = useRef(null)
   const modelRef = useRef(null)
   const animationFrameRef = useRef(null)
+  const ovalRef = useRef(null)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [instructionText, setInstructionText] = useState('Поместите лицо в овал и не двигайтесь')
   const [isFaceDetected, setIsFaceDetected] = useState(false)
   const [isFaceInOval, setIsFaceInOval] = useState(false)
   const [showCancelModal, setShowCancelModal] = useState(false)
+  
+  // Параметры для точной настройки обнаружения лица
+  const faceDetectionConfig = {
+    // Допуск для проверки точек (0.85 = строже, 0.95 = мягче)
+    // Чем меньше значение, тем строже проверка
+    pointTolerance: 0.90, // 90% от размера овала
+    
+    // Минимальное количество углов лица, которые должны быть внутри овала (1-4)
+    // Чем больше значение, тем строже проверка
+    minCornersInOval: 3, // Минимум 3 из 4 углов
+    
+    // Размер лица относительно овала (в процентах)
+    // minSize: минимальный размер лица (30% = лицо должно занимать минимум 30% овала)
+    // maxSize: максимальный размер лица (95% = лицо не должно быть больше 95% овала)
+    minFaceSize: 0.35, // 35% - лицо не должно быть слишком маленьким
+    maxFaceSize: 0.90, // 90% - лицо не должно быть слишком большим
+    
+    // Стабильность: лицо должно быть в овале несколько кадров подряд
+    // Это предотвращает ложные срабатывания при движении
+    stabilityFrames: 3, // Лицо должно быть в овале 3 кадра подряд
+  }
+  
+  const stabilityRef = useRef(0) // Счетчик стабильных кадров
 
   const handleCancelClick = () => {
     setShowCancelModal(true)
@@ -181,15 +205,40 @@ function Camera() {
             const videoHeight = video.videoHeight || canvas.height
             const videoAspect = videoWidth / videoHeight
 
-            // Вычисляем размеры овала на экране
+            // Получаем реальные размеры SVG овала на экране
             const screenWidth = window.innerWidth
             const screenHeight = window.innerHeight
-            const ovalWidth = Math.min(298, screenWidth * 0.8)
-            const ovalHeight = (409 / 298) * ovalWidth
+            
+            // Параметры овала из SVG (viewBox: 298x409, ellipse: cx=149, cy=204.5, rx=143, ry=198.5)
+            const svgViewBoxWidth = 298
+            const svgViewBoxHeight = 409
+            const svgOvalCenterX = 149
+            const svgOvalCenterY = 204.5
+            const svgOvalRadiusX = 143
+            const svgOvalRadiusY = 198.5
 
-            // Центр овала на экране (50% по горизонтали, 50% по вертикали)
+            // Получаем реальные размеры SVG элемента на экране
+            let ovalScreenWidth = Math.min(298, screenWidth * 0.8)
+            let ovalScreenHeight = (svgViewBoxHeight / svgViewBoxWidth) * ovalScreenWidth
+            
+            // Если SVG элемент существует, используем его реальные размеры
+            if (ovalRef.current) {
+              const rect = ovalRef.current.getBoundingClientRect()
+              ovalScreenWidth = rect.width
+              ovalScreenHeight = rect.height
+            }
+
+            // Масштаб для перевода координат SVG в координаты экрана
+            const scaleX = ovalScreenWidth / svgViewBoxWidth
+            const scaleY = ovalScreenHeight / svgViewBoxHeight
+
+            // Центр овала на экране (центр SVG элемента)
             const ovalScreenX = screenWidth / 2
             const ovalScreenY = screenHeight / 2
+
+            // Радиусы овала на экране (пересчитанные из SVG)
+            const ovalRadiusX = svgOvalRadiusX * scaleX
+            const ovalRadiusY = svgOvalRadiusY * scaleY
 
             // Преобразуем координаты видео в координаты экрана
             const videoDisplayWidth = screenWidth
@@ -212,14 +261,14 @@ function Camera() {
 
             // Проверяем, что лицо находится внутри овала
             // Используем уравнение эллипса: (x-cx)²/a² + (y-cy)²/b² <= 1
-            const a = ovalWidth / 2
-            const b = ovalHeight / 2
+            const a = ovalRadiusX
+            const b = ovalRadiusY
 
-            // Проверяем точки лица с более гибким допуском
+            // Проверяем точки лица с настраиваемым допуском
             const checkPoint = (x, y) => {
               const dx = (x - ovalScreenX) / a
               const dy = (y - ovalScreenY) / b
-              return (dx * dx + dy * dy) <= 0.95 // 95% от размера овала для допуска
+              return (dx * dx + dy * dy) <= faceDetectionConfig.pointTolerance
             }
 
             // Проверяем центр лица (главный критерий)
@@ -232,25 +281,44 @@ function Camera() {
             const bottomRightIn = checkPoint(faceBottomRightScreenX, faceBottomRightScreenY)
 
             const cornersIn = [topLeftIn, topRightIn, bottomLeftIn, bottomRightIn].filter(Boolean).length
-            const mostCornersIn = cornersIn >= 3 // Минимум 3 из 4 углов должны быть внутри
+            const mostCornersIn = cornersIn >= faceDetectionConfig.minCornersInOval
 
-            // Проверяем размер лица (более гибкие границы)
-            const faceSizeRatio = Math.max(faceWidth / ovalWidth, faceHeight / ovalHeight)
-            const sizeValid = faceSizeRatio >= 0.3 && faceSizeRatio <= 0.95 // Лицо должно занимать 30-95% овала
+            // Проверяем размер лица с настраиваемыми границами
+            const ovalWidthForSize = ovalRadiusX * 2
+            const ovalHeightForSize = ovalRadiusY * 2
+            const faceSizeRatio = Math.max(faceWidth / ovalWidthForSize, faceHeight / ovalHeightForSize)
+            const sizeValid = faceSizeRatio >= faceDetectionConfig.minFaceSize && 
+                            faceSizeRatio <= faceDetectionConfig.maxFaceSize
 
             // Лицо считается в овале, если центр внутри И большинство углов внутри И размер подходящий
             const inOval = centerIn && mostCornersIn && sizeValid
 
-            setIsFaceInOval(inOval)
-
+            // Проверка стабильности: лицо должно быть в овале несколько кадров подряд
             if (inOval) {
-              setInstructionText('Отлично! Держите лицо неподвижно')
+              stabilityRef.current += 1
             } else {
+              stabilityRef.current = 0
+            }
+            
+            // Лицо считается стабильно в овале только после нескольких кадров
+            const isStableInOval = stabilityRef.current >= faceDetectionConfig.stabilityFrames
+
+            setIsFaceInOval(isStableInOval)
+
+            // Обновляем текст инструкции в зависимости от состояния
+            if (isStableInOval) {
+              setInstructionText('Отлично! Держите лицо неподвижно')
+            } else if (inOval && !isStableInOval) {
+              setInstructionText('Держите лицо неподвижно...')
+            } else if (isFaceDetected) {
               setInstructionText('Поместите лицо в овал и не двигайтесь')
+            } else {
+              setInstructionText('Поместите лицо в овал')
             }
           } else {
             setIsFaceDetected(false)
             setIsFaceInOval(false)
+            stabilityRef.current = 0 // Сбрасываем счетчик стабильности
             setInstructionText('Поместите лицо в овал')
           }
         } catch (err) {
@@ -300,6 +368,7 @@ function Camera() {
             <div className="camera-overlay"></div>
             <div className="face-oval-container">
               <svg 
+                ref={ovalRef}
                 className={`face-oval ${isFaceInOval ? 'face-oval-success' : isFaceDetected ? 'face-oval-warning' : ''}`}
                 width="298" 
                 height="409" 
