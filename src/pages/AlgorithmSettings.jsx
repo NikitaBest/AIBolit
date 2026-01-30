@@ -196,7 +196,7 @@ function AlgorithmSettings() {
   const handleNext = () => {
     if (isFormValid) {
       // Здесь можно сохранить данные и перейти на следующую страницу
-      navigate('/camera')
+      navigate('/preparation')
     }
   }
 
