@@ -66,9 +66,8 @@ function PrioritySelection() {
   const [selectedPriority, setSelectedPriority] = useState('stress')
 
   const handleNext = () => {
-    // Здесь можно сохранить выбранный приоритет и перейти на следующую страницу
-    // Например, navigate('/camera') или другую страницу
-    navigate('/camera')
+    // Переход на страницу настройки алгоритмов
+    navigate('/algorithm-settings')
   }
 
   return (
