@@ -281,7 +281,12 @@ function Camera() {
   return (
     <div className="camera-page">
       <div className="camera-preview">
-        {isLoading && <p className="camera-loading">Запрашиваем доступ к камере...</p>}
+        {isLoading && (
+          <div className="camera-loading-container">
+            <div className="camera-loading-spinner"></div>
+            <p className="camera-loading-text">Запрашиваем доступ к камере...</p>
+          </div>
+        )}
         {error && <p className="error-text">{error}</p>}
         <video
           ref={videoRef}

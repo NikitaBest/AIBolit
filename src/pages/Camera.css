@@ -33,12 +33,43 @@
   display: none;
 }
 
-.camera-loading {
+.camera-loading-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  z-index: 10;
+  background: #000;
+}
+
+.camera-loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #07c3dc;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.camera-loading-text {
   color: #fff;
-  font-size: 16px;
+  font-size: clamp(16px, 4vw, 18px);
   font-weight: 400;
   text-align: center;
-  z-index: 10;
+  margin: 0;
+  padding: 0 20px;
 }
 
 .error-text {
