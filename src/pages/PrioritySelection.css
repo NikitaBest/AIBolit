@@ -9,14 +9,15 @@
 .priority-selection-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
   width: 100%;
+  padding-top: 68px;
 }
 
-.priority-selection-title {
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 32px;
+.priority-selection-page .priority-selection-title {
+  font-size: 16px !important;
+  font-weight: 700;
+  line-height: 1.5;
   letter-spacing: -0.01em;
   color: var(--color-fg-primary);
   margin: 0;
@@ -24,11 +25,11 @@
 }
 
 .priority-selection-subtitle {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 400;
-  line-height: 1.5;
-  color: var(--color-fg-secondary);
-  margin: 0 0 8px 0;
+  line-height: 1.3;
+  color: #83959E;
+  margin: 0;
   text-align: left;
 }
 
@@ -52,8 +53,8 @@
 .priority-selection-hint {
   font-size: 12px;
   font-weight: 400;
-  line-height: 1.4;
-  color: var(--color-fg-secondary);
+  line-height: 1.3;
+  color: #83959E;
   text-align: center;
   margin: 0;
   max-width: 343px;
