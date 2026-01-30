@@ -19,6 +19,10 @@ function Camera() {
   const [isFaceDetected, setIsFaceDetected] = useState(false)
   const [isFaceInOval, setIsFaceInOval] = useState(false)
   const [showCancelModal, setShowCancelModal] = useState(false)
+  const [scanProgress, setScanProgress] = useState(0) // Прогресс сканирования 0-100
+  const [scanStage, setScanStage] = useState('') // Текущий этап сканирования
+  const scanIntervalRef = useRef(null) // Референс для интервала сканирования
+  const scanStartTimeRef = useRef(null) // Время начала сканирования
   
   // Параметры для точной настройки обнаружения лица
   const faceDetectionConfig = {
@@ -43,6 +47,67 @@ function Camera() {
   
   const stabilityRef = useRef(0) // Счетчик стабильных кадров
 
+  // Этапы сканирования с процентами
+  const scanStages = [
+    { progress: 0, text: 'Калибровка освещения...' },
+    { progress: 25, text: 'Измеряем пульс...' },
+    { progress: 46, text: 'Анализируем здоровье...' },
+    { progress: 68, text: 'Почти готово...' },
+    { progress: 82, text: 'Завершение анализа...' },
+    { progress: 100, text: 'Готово!' },
+  ]
+
+  // Запуск сканирования
+  useEffect(() => {
+    if (isFaceInOval && !scanIntervalRef.current) {
+      // Начинаем сканирование
+      scanStartTimeRef.current = Date.now()
+      setScanProgress(0)
+      setScanStage(scanStages[0].text)
+
+      const totalDuration = 50000 // 50 секунд в миллисекундах
+      const updateInterval = 100 // Обновляем каждые 100мс для плавности
+
+      scanIntervalRef.current = setInterval(() => {
+        const elapsed = Date.now() - scanStartTimeRef.current
+        const progress = Math.min(100, (elapsed / totalDuration) * 100)
+        setScanProgress(progress)
+
+        // Обновляем этап сканирования в зависимости от прогресса
+        const currentStage = scanStages.find((stage, index) => {
+          const nextStage = scanStages[index + 1]
+          return progress >= stage.progress && (!nextStage || progress < nextStage.progress)
+        })
+        if (currentStage) {
+          setScanStage(currentStage.text)
+        }
+
+        // Завершение сканирования
+        if (progress >= 100) {
+          clearInterval(scanIntervalRef.current)
+          scanIntervalRef.current = null
+          // Здесь будет подключение к сервису анализа
+          console.log('Сканирование завершено, готово к подключению сервиса')
+        }
+      }, updateInterval)
+    } else if (!isFaceInOval && scanIntervalRef.current) {
+      // Сбрасываем сканирование, если лицо ушло
+      clearInterval(scanIntervalRef.current)
+      scanIntervalRef.current = null
+      scanStartTimeRef.current = null
+      setScanProgress(0)
+      setScanStage('')
+    }
+
+    return () => {
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current)
+        scanIntervalRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFaceInOval])
+
   const handleCancelClick = () => {
     setShowCancelModal(true)
   }
@@ -54,6 +119,10 @@ function Camera() {
   const handleExit = () => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
+    }
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current)
+      scanIntervalRef.current = null
     }
     setShowCancelModal(false)
     navigate(-1)
@@ -306,14 +375,17 @@ function Camera() {
             setIsFaceInOval(isStableInOval)
 
             // Обновляем текст инструкции в зависимости от состояния
-            if (isStableInOval) {
-              setInstructionText('Отлично! Держите лицо неподвижно')
-            } else if (inOval && !isStableInOval) {
-              setInstructionText('Держите лицо неподвижно...')
-            } else if (isFaceDetected) {
-              setInstructionText('Поместите лицо в овал и не двигайтесь')
-            } else {
-              setInstructionText('Поместите лицо в овал')
+            // Если идет сканирование, текст управляется через scanStage
+            if (!scanProgress || scanProgress === 0) {
+              if (isStableInOval) {
+                setInstructionText('Отлично! Держите лицо неподвижно')
+              } else if (inOval && !isStableInOval) {
+                setInstructionText('Держите лицо неподвижно...')
+              } else if (isFaceDetected) {
+                setInstructionText('Поместите лицо в овал и не двигайтесь')
+              } else {
+                setInstructionText('Поместите лицо в овал')
+              }
             }
           } else {
             setIsFaceDetected(false)
@@ -346,6 +418,31 @@ function Camera() {
     }
   }, [])
 
+  // Определяем цвет овала: синий во время сканирования, зеленый когда готов, желтый когда не в овале
+  const ovalColorClass = scanProgress > 0
+    ? 'face-oval-scanning'
+    : isFaceInOval
+      ? 'face-oval-success'
+      : isFaceDetected
+        ? 'face-oval-warning'
+        : 'face-oval-default'
+  
+  // Вычисляем длину дуги для прогресс-бара (в процентах от окружности)
+  // Прогресс идет по часовой стрелке, начиная сверху
+  // Формула Рамануджана для приблизительной длины эллипса: π * [3(a+b) - sqrt((3a+b)(a+3b))]
+  const a = 143 // Радиус по X
+  const b = 198.5 // Радиус по Y
+  const circumference = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)))
+  
+  // Создаем path для овала, начинающийся сверху и идущий по часовой стрелке
+  // Начальная точка: (149, 6) - верхняя точка эллипса (cy - ry = 204.5 - 198.5 = 6)
+  // Нижняя точка: (149, 403) - нижняя точка эллипса (cy + ry = 204.5 + 198.5 = 403)
+  // Используем две дуги для полного обхода эллипса по часовой стрелке
+  const ovalPath = `M 149 6 A ${a} ${b} 0 1 1 149 403 A ${a} ${b} 0 1 1 149 6`
+  
+  // Вычисляем offset для stroke-dasharray (начинаем сверху, идем по часовой стрелке)
+  const progressOffset = circumference - (circumference * scanProgress) / 100
+
   return (
     <div className="camera-page">
       <div className="camera-preview">
@@ -369,19 +466,42 @@ function Camera() {
             <div className="face-oval-container">
               <svg 
                 ref={ovalRef}
-                className={`face-oval ${isFaceInOval ? 'face-oval-success' : isFaceDetected ? 'face-oval-warning' : ''}`}
+                className={`face-oval ${ovalColorClass}`}
                 width="298" 
                 height="409" 
                 viewBox="0 0 298 409" 
                 fill="none" 
                 xmlns="http://www.w3.org/2000/svg"
               >
+                <defs>
+                  <path
+                    id="oval-path"
+                    d="M 149 6 A 143 198.5 0 1 1 149 403 A 143 198.5 0 1 1 149 6"
+                  />
+                </defs>
                 <mask id="mask0_138_3429" style={{maskType: 'alpha'}} maskUnits="userSpaceOnUse" x="0" y="0" width="298" height="409">
                   <ellipse cx="149" cy="204.5" rx="143" ry="198.5" stroke="black" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round"/>
                 </mask>
                 <g mask="url(#mask0_138_3429)">
                   <ellipse cx="149.5" cy="204.5" rx="154.5" ry="210.5" fill="#D3E8F4"/>
                 </g>
+                {/* Прогресс-бар по овалу - точно следует контуру овала */}
+                {scanProgress > 0 && (
+                  <path
+                    d={ovalPath}
+                    stroke="#07C3DC"
+                    strokeWidth="12"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={progressOffset}
+                    style={{
+                      transition: 'stroke-dashoffset 0.1s linear',
+                    }}
+                  />
+                )}
+                {/* Основной контур овала */}
                 <ellipse 
                   cx="149" 
                   cy="204.5" 
@@ -392,13 +512,19 @@ function Camera() {
                   strokeLinecap="round" 
                   strokeLinejoin="round"
                   fill="none"
+                  opacity={scanProgress > 0 ? 0.3 : 1}
                 />
               </svg>
             </div>
             <div className="camera-instruction-container">
-              <p className="camera-instruction-text">
-                {instructionText}
-              </p>
+              {scanProgress > 0 ? (
+                <>
+                  <p className="camera-instruction-percent">{Math.round(scanProgress)}%</p>
+                  <p className="camera-instruction-text">{scanStage}</p>
+                </>
+              ) : (
+                <p className="camera-instruction-text">{instructionText}</p>
+              )}
             </div>
             <button className="camera-cancel-button" onClick={handleCancelClick} type="button">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">

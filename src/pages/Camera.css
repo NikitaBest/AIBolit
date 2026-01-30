@@ -185,6 +185,15 @@
   margin-top: 20px;
 }
 
+.camera-instruction-percent {
+  color: #07c3dc;
+  font-size: clamp(18px, 4.5vw, 24px);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  margin: 0 0 4px 0;
+}
+
 .camera-instruction-text {
   color: #fff;
   font-size: clamp(14px, 3.5vw, 16px);
