@@ -31,6 +31,64 @@
   display: block;
 }
 
+/* Анимация подмигивания для первого шага - только правый глаз */
+.wink-eye-right {
+  transform-origin: center;
+  animation: wink 3s ease-in-out infinite;
+}
+
+@keyframes wink {
+  0%, 90%, 100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  92%, 98% {
+    transform: scaleY(0.1);
+    opacity: 0.8;
+  }
+}
+
+/* Анимация блеска для щита - по контуру */
+.shield-shine-outline {
+  stroke-dasharray: 200;
+  stroke-dashoffset: 200;
+  animation: shine-outline 3s ease-in-out infinite;
+}
+
+@keyframes shine-outline {
+  0% {
+    stroke-dashoffset: 200;
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: -200;
+    opacity: 0;
+  }
+}
+
+/* Анимация пульсации для объектива камеры */
+.camera-lens {
+  transform-origin: center;
+  animation: camera-pulse 2s ease-in-out infinite;
+}
+
+@keyframes camera-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
 .welcome-dots {
   display: flex;
   justify-content: center;
