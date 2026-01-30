@@ -57,10 +57,10 @@ function Welcome() {
         <img
           src={
             step === 0
-              ? '/Welcome1.png'
+              ? '/Welcome1.svg'
               : step === 1
-                ? '/Welcome2.png'
-                : '/Welcome3.png'
+                ? '/Welcome2.svg'
+                : '/Welcome3.svg'
           }
           alt={
             step === 0
