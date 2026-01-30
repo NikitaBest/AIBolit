@@ -7,9 +7,49 @@ import './Welcome.css'
 function Welcome() {
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
+  const [isRequestingCamera, setIsRequestingCamera] = useState(false)
+  const [cameraError, setCameraError] = useState('')
 
   const isFirstStep = step === 0
   const isSecondStep = step === 1
+
+  const requestCameraAccess = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('Ваше устройство не поддерживает доступ к камере.')
+      return
+    }
+
+    setIsRequestingCamera(true)
+    setCameraError('')
+    let stream = null
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      })
+
+      // Доступ получен, останавливаем поток и переходим на страницу выбора приоритета
+      stream.getTracks().forEach((track) => track.stop())
+      navigate('/priority')
+    } catch (err) {
+      // Обработка различных типов ошибок
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setCameraError('Доступ к камере отклонен. Пожалуйста, разрешите доступ в настройках браузера.')
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setCameraError('Камера не найдена на вашем устройстве.')
+      } else {
+        setCameraError('Не удалось получить доступ к камере. Проверьте разрешения.')
+      }
+      console.error('Camera access error:', err)
+    } finally {
+      setIsRequestingCamera(false)
+      // Гарантируем остановку потока в случае ошибки
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop())
+      }
+    }
+  }
 
   return (
     <Page className="home-page">
@@ -55,6 +95,11 @@ function Welcome() {
               Мы не записываем и не сохраняем видео. Камера нужна только для измерения пульса по
               изменению цвета лица.
             </p>
+            {cameraError && (
+              <p className="error-text" style={{ marginTop: '8px' }}>
+                {cameraError}
+              </p>
+            )}
           </>
         )}
       </div>
@@ -68,10 +113,17 @@ function Welcome() {
           onClick={() => {
             if (step === 0) setStep(1)
             else if (step === 1) setStep(2)
-            else navigate('/camera')
+            else requestCameraAccess()
           }}
+          disabled={isRequestingCamera}
         >
-          {step === 0 ? 'Далее' : step === 1 ? 'Начать' : 'Разрешить доступ'}
+          {isRequestingCamera
+            ? 'Запрос доступа...'
+            : step === 0
+              ? 'Далее'
+              : step === 1
+                ? 'Начать'
+                : 'Разрешить доступ'}
         </PrimaryButton>
         {step < 2 ? (
           <p className="legal-text">
