@@ -23,16 +23,16 @@ function Camera() {
     setShowCancelModal(true)
   }
 
-  const handleCancelConfirm = () => {
+  const handleContinue = () => {
+    setShowCancelModal(false)
+  }
+
+  const handleExit = () => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
     }
     setShowCancelModal(false)
     navigate(-1)
-  }
-
-  const handleCancelClose = () => {
-    setShowCancelModal(false)
   }
 
   // Загрузка модели BlazeFace
@@ -243,12 +243,13 @@ function Camera() {
       </div>
       <Modal
         isOpen={showCancelModal}
-        onClose={handleCancelClose}
+        onClose={handleContinue}
         title="Прервать сканирование?"
         description="Прогресс не сохранится."
-        onConfirm={handleCancelConfirm}
+        onConfirm={handleContinue}
         confirmText="Продолжить"
         cancelText="Выйти"
+        onCancel={handleExit}
       />
     </div>
   )
