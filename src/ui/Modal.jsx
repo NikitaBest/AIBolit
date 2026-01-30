@@ -1,0 +1,25 @@
+import './Modal.css'
+
+function Modal({ isOpen, onClose, title, description, onConfirm, confirmText = 'Продолжить', cancelText = 'Выйти' }) {
+  if (!isOpen) return null
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <h2 className="modal-title">{title}</h2>
+        {description && <p className="modal-description">{description}</p>}
+        <div className="modal-buttons">
+          <button className="modal-button modal-button-cancel" onClick={onClose} type="button">
+            {cancelText}
+          </button>
+          <button className="modal-button modal-button-confirm" onClick={onConfirm} type="button">
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default Modal
+

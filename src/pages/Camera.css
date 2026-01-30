@@ -80,6 +80,20 @@
   height: auto;
   max-height: 60vh;
   object-fit: contain;
+  color: #D3E8F4;
+  transition: color 0.3s ease;
+}
+
+.face-oval-warning {
+  color: #FFCB3D;
+}
+
+.face-oval-success {
+  color: #4CAF50;
+}
+
+.face-oval-scanning {
+  color: #07C3DC;
 }
 
 .camera-cancel-button {
