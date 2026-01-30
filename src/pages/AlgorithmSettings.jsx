@@ -184,7 +184,14 @@ function AlgorithmSettings() {
 
   const isValidDate = dateValidation.isValid && !dateError
   const age = dateValidation.age
-  const isFormValid = gender && isValidDate
+  
+  // Валидация всех обязательных полей
+  const isFormValid = 
+    gender && 
+    isValidDate && 
+    height && 
+    weight && 
+    smokingStatus
 
   const handleNext = () => {
     if (isFormValid) {
@@ -315,6 +322,14 @@ function AlgorithmSettings() {
                 <path d="M13.3333 4L6 11.3333L2.66667 8" stroke="#07c3dc" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
               </svg>
               <span>Риски снижены</span>
+            </div>
+          )}
+          {smokingStatus === 'yes' && (
+            <div className="settings-note">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M13.3333 4L6 11.3333L2.66667 8" stroke="#07c3dc" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+              </svg>
+              <span>Риски повышены</span>
             </div>
           )}
         </div>
