@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useUserData } from '../contexts/UserDataContext.jsx'
+import logger from '../utils/logger.js'
 import Page from '../layout/Page.jsx'
 import Header from '../layout/Header.jsx'
 import RadioCard from '../ui/RadioCard.jsx'
@@ -58,6 +60,7 @@ const SMOKING_OPTIONS = [
 
 function AlgorithmSettings() {
   const navigate = useNavigate()
+  const { updateUserData } = useUserData()
   const [gender, setGender] = useState('male')
   const [birthDate, setBirthDate] = useState('')
   const [dateError, setDateError] = useState('')
@@ -195,7 +198,17 @@ function AlgorithmSettings() {
 
   const handleNext = () => {
     if (isFormValid) {
-      // Здесь можно сохранить данные и перейти на следующую страницу
+      // Сохраняем данные пользователя в контекст
+      const userDataToSave = {
+        gender: gender === 'male' ? 'MALE' : 'FEMALE',
+        age: age,
+        weight: parseFloat(weight),
+        height: parseFloat(height),
+        smokingStatus: smokingStatus === 'yes' ? 'SMOKER' : 'NON_SMOKER',
+      }
+      
+      logger.user('Данные пользователя сохранены', userDataToSave)
+      updateUserData(userDataToSave)
       navigate('/preparation')
     }
   }

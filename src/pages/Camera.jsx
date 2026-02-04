@@ -1,53 +1,45 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import * as tf from '@tensorflow/tfjs'
-import * as blazeface from '@tensorflow-models/blazeface'
+import healthMonitorManager, {
+  SessionState,
+  ImageValidity,
+  DeviceOrientation,
+  Sex,
+  SmokingStatus,
+} from '@biosensesignal/web-sdk'
+import { useUserData } from '../contexts/UserDataContext.jsx'
+import { SDK_CONFIG } from '../config/sdkConfig.js'
+import logger from '../utils/logger.js'
 import Page from '../layout/Page.jsx'
 import Modal from '../ui/Modal.jsx'
 import './Camera.css'
 
 function Camera() {
   const navigate = useNavigate()
+  const { userData } = useUserData()
   const videoRef = useRef(null)
-  const canvasRef = useRef(null)
-  const modelRef = useRef(null)
-  const animationFrameRef = useRef(null)
   const ovalRef = useRef(null)
+  const sessionRef = useRef(null)
+  const cameraIdRef = useRef(null)
+  
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [instructionText, setInstructionText] = useState('Поместите лицо в овал и не двигайтесь')
   const [isFaceDetected, setIsFaceDetected] = useState(false)
-  const [isFaceInOval, setIsFaceInOval] = useState(false)
+  const [isFaceValid, setIsFaceValid] = useState(false)
   const [showCancelModal, setShowCancelModal] = useState(false)
-  const [scanProgress, setScanProgress] = useState(0) // Прогресс сканирования 0-100
-  const [scanStage, setScanStage] = useState('') // Текущий этап сканирования
-  const scanIntervalRef = useRef(null) // Референс для интервала сканирования
-  const scanStartTimeRef = useRef(null) // Время начала сканирования
+  const [scanProgress, setScanProgress] = useState(0)
+  const [scanStage, setScanStage] = useState('')
+  const [sessionState, setSessionState] = useState(SessionState.INIT)
+  const [isMeasuring, setIsMeasuring] = useState(false)
+  const [measurementStartTime, setMeasurementStartTime] = useState(null)
+  const [processingTime] = useState(SDK_CONFIG.defaultProcessingTime)
   
-  // Параметры для точной настройки обнаружения лица
-  const faceDetectionConfig = {
-    // Допуск для проверки точек (0.85 = строже, 0.95 = мягче)
-    // Чем меньше значение, тем строже проверка
-    pointTolerance: 0.90, // 90% от размера овала
-    
-    // Минимальное количество углов лица, которые должны быть внутри овала (1-4)
-    // Чем больше значение, тем строже проверка
-    minCornersInOval: 3, // Минимум 3 из 4 углов
-    
-    // Размер лица относительно овала (в процентах)
-    // minSize: минимальный размер лица (30% = лицо должно занимать минимум 30% овала)
-    // maxSize: максимальный размер лица (95% = лицо не должно быть больше 95% овала)
-    minFaceSize: 0.35, // 35% - лицо не должно быть слишком маленьким
-    maxFaceSize: 0.90, // 90% - лицо не должно быть слишком большим
-    
-    // Стабильность: лицо должно быть в овале несколько кадров подряд
-    // Это предотвращает ложные срабатывания при движении
-    stabilityFrames: 3, // Лицо должно быть в овале 3 кадра подряд
-  }
-  
-  const stabilityRef = useRef(0) // Счетчик стабильных кадров
+  const scanIntervalRef = useRef(null)
+  const isCreatingSessionRef = useRef(false) // Флаг для предотвращения множественного создания сессий
+  const isMounted = useRef(true) // Для отслеживания монтирования компонента
 
-  // Этапы сканирования с процентами
+  // Этапы сканирования
   const scanStages = [
     { progress: 0, text: 'Калибровка освещения...' },
     { progress: 25, text: 'Измеряем пульс...' },
@@ -57,23 +49,14 @@ function Camera() {
     { progress: 100, text: 'Готово!' },
   ]
 
-  // Запуск сканирования
+  // Обновление прогресса измерения
   useEffect(() => {
-    if (isFaceInOval && !scanIntervalRef.current) {
-      // Начинаем сканирование
-      scanStartTimeRef.current = Date.now()
-      setScanProgress(0)
-      setScanStage(scanStages[0].text)
-
-      const totalDuration = 50000 // 50 секунд в миллисекундах
-      const updateInterval = 100 // Обновляем каждые 100мс для плавности
-
+    if (isMeasuring && measurementStartTime) {
       scanIntervalRef.current = setInterval(() => {
-        const elapsed = Date.now() - scanStartTimeRef.current
-        const progress = Math.min(100, (elapsed / totalDuration) * 100)
+        const elapsed = Date.now() - measurementStartTime
+        const progress = Math.min(100, (elapsed / (processingTime * 1000)) * 100)
         setScanProgress(progress)
 
-        // Обновляем этап сканирования в зависимости от прогресса
         const currentStage = scanStages.find((stage, index) => {
           const nextStage = scanStages[index + 1]
           return progress >= stage.progress && (!nextStage || progress < nextStage.progress)
@@ -81,32 +64,24 @@ function Camera() {
         if (currentStage) {
           setScanStage(currentStage.text)
         }
-
-        // Завершение сканирования
-        if (progress >= 100) {
+      }, 100)
+    } else {
+      if (scanIntervalRef.current) {
           clearInterval(scanIntervalRef.current)
           scanIntervalRef.current = null
-          // Здесь будет подключение к сервису анализа
-          console.log('Сканирование завершено, готово к подключению сервиса')
-        }
-      }, updateInterval)
-    } else if (!isFaceInOval && scanIntervalRef.current) {
-      // Сбрасываем сканирование, если лицо ушло
-      clearInterval(scanIntervalRef.current)
-      scanIntervalRef.current = null
-      scanStartTimeRef.current = null
+      }
+      if (!isMeasuring) {
       setScanProgress(0)
       setScanStage('')
+      }
     }
 
     return () => {
       if (scanIntervalRef.current) {
         clearInterval(scanIntervalRef.current)
-        scanIntervalRef.current = null
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isFaceInOval])
+  }, [isMeasuring, measurementStartTime, processingTime])
 
   const handleCancelClick = () => {
     setShowCancelModal(true)
@@ -116,331 +91,469 @@ function Camera() {
     setShowCancelModal(false)
   }
 
-  const handleExit = () => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-    }
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current)
-      scanIntervalRef.current = null
+  const handleExit = async () => {
+    if (sessionRef.current) {
+      try {
+        logger.session('terminate - завершение сессии по запросу пользователя')
+        await sessionRef.current.terminate()
+        logger.session('terminate - сессия успешно завершена')
+      } catch (err) {
+        logger.error('Ошибка при завершении сессии', err)
+      }
     }
     setShowCancelModal(false)
     navigate(-1)
   }
 
-  // Загрузка модели BlazeFace
-  useEffect(() => {
-    async function loadModel() {
-      try {
-        console.log('Начало загрузки TensorFlow...')
-        await tf.ready()
-        console.log('TensorFlow готов, загрузка BlazeFace...')
-        const model = await blazeface.load()
-        modelRef.current = model
-        console.log('Модель BlazeFace загружена успешно')
-      } catch (err) {
-        console.error('Ошибка загрузки модели:', err)
-        setError('Не удалось загрузить модель распознавания лиц')
-      }
-    }
-    loadModel()
+  // Callback для получения жизненных показателей во время измерения
+  const onVitalSign = useCallback((vitalSign) => {
+    logger.sdk('onVitalSign - получены текущие показатели', vitalSign)
+    // Здесь можно обновить UI с текущими показателями
   }, [])
 
-  // Инициализация камеры и отслеживание лица
-  useEffect(() => {
-    let stream
+  // Callback для получения финальных результатов
+  const onFinalResults = useCallback((vitalSignsResults) => {
+    logger.sdk('onFinalResults - получены финальные результаты', vitalSignsResults)
+    logger.info('Измерение завершено успешно', {
+      hasResults: !!vitalSignsResults?.results,
+      pulseRate: vitalSignsResults?.results?.pulseRate?.value,
+      stressLevel: vitalSignsResults?.results?.stressLevel?.value,
+    })
+    setIsMeasuring(false)
+    setScanProgress(100)
+    setScanStage('Готово!')
+    // Здесь можно сохранить результаты и перейти на следующую страницу
+    // navigate('/results', { state: { results: vitalSignsResults } })
+  }, [])
 
-    async function initCamera() {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setError('Ваше устройство не поддерживает доступ к камере.')
-        setIsLoading(false)
-        return
+  // Callback для обработки ошибок
+  const onError = useCallback((errorData) => {
+    logger.error('SDK Error - получена ошибка от SDK', errorData)
+    
+    // Более детальная обработка ошибок
+    let errorMessage = 'Неизвестная ошибка'
+    let isCritical = false
+    
+    if (errorData.code) {
+      // Ошибки лицензирования (domain 2000)
+      if (errorData.domain === 2000) {
+        // Коды ошибок лицензирования
+        if (errorData.code === 1001 || errorData.code === 1002) {
+          errorMessage = 'Ошибка лицензии. Проверьте license key или обратитесь в поддержку BiosenseSignal.'
+          isCritical = true
+        } else if (errorData.code === 1003) {
+          errorMessage = 'Лицензия истекла. Обратитесь в поддержку BiosenseSignal.'
+          isCritical = true
+        } else if (errorData.code === 2007) {
+          // Ошибка активации лицензии - обычно означает, что домен не разрешен
+          const currentDomain = window.location.hostname
+          errorMessage = `Лицензия не активирована для домена "${currentDomain}". Свяжитесь с BiosenseSignal и попросите добавить этот домен в разрешенные домены для вашей лицензии.`
+          isCritical = true
+        } else {
+          errorMessage = `Ошибка лицензии (код: ${errorData.code}). Обратитесь в поддержку BiosenseSignal.`
+          isCritical = true
+        }
+      } else if (errorData.message) {
+        errorMessage = errorData.message
+      } else {
+        errorMessage = `Ошибка SDK (код: ${errorData.code}, домен: ${errorData.domain || 'неизвестен'})`
       }
-
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
+    } else if (errorData.message) {
+      errorMessage = errorData.message
+    }
+    
+    // Проверка на OOM (Out of Memory)
+    const errorStr = JSON.stringify(errorData).toLowerCase()
+    if (errorStr.includes('oom') || errorStr.includes('out of memory') || errorStr.includes('aborted')) {
+      errorMessage = 'Недостаточно памяти. Пожалуйста, перезагрузите страницу.'
+      isCritical = true
+      
+      // Очищаем сессию при OOM
+      if (sessionRef.current) {
+        try {
+          sessionRef.current.terminate().catch(() => {})
+          sessionRef.current = null
+        } catch (e) {
+          logger.error('Ошибка при очистке сессии после OOM', e)
+        }
+      }
+      isCreatingSessionRef.current = false
+    }
+    
+    setError(`Ошибка SDK: ${errorMessage}`)
+    setIsMeasuring(false)
+    
+    // Если это критическая ошибка лицензии, останавливаем камеру
+    if (isCritical && errorData.domain === 2000) {
+      // Останавливаем stream при критической ошибке лицензии
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject
+        stream.getTracks().forEach((track) => {
+          track.stop()
+          logger.debug('Camera track stopped due to license error')
         })
+        videoRef.current.srcObject = null
+      }
+      setIsLoading(false)
+    } else if (isCritical || errorData.code === 1001 || errorData.code === 1002 || errorData.code === 1003) {
+      setIsLoading(false)
+    }
+  }, [])
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          
-          // Ждем загрузки видео и модели перед началом отслеживания
-          videoRef.current.onloadedmetadata = async () => {
-            console.log('Видео метаданные загружены', {
-              videoWidth: videoRef.current.videoWidth,
-              videoHeight: videoRef.current.videoHeight
-            })
-            setIsLoading(false)
-            
-            // Ждем загрузки модели перед началом отслеживания
-            if (!modelRef.current) {
-              console.log('Ожидание загрузки модели...')
-              const waitForModel = setInterval(() => {
-                if (modelRef.current) {
-                  clearInterval(waitForModel)
-                  console.log('Модель загружена, начинаем отслеживание')
-                  startFaceDetection()
-                }
-              }, 100)
-              
-              // Таймаут на случай, если модель не загрузится
-              setTimeout(() => {
-                clearInterval(waitForModel)
-                if (modelRef.current) {
-                  startFaceDetection()
-                } else {
-                  console.error('Модель не загрузилась за отведенное время')
-                }
-              }, 10000)
-            } else {
-              startFaceDetection()
-            }
+  // Callback для обработки предупреждений
+  const onWarning = useCallback((warningData) => {
+    logger.warn('SDK Warning - получено предупреждение от SDK', warningData)
+  }, [])
+
+  // Callback для активации устройства
+  const onActivation = useCallback((activationId) => {
+    logger.sdk('onActivation - устройство активировано', { activationId })
+  }, [])
+
+  // Callback для получения доступных жизненных показателей
+  const onEnabledVitalSigns = useCallback((vitalSigns) => {
+    logger.sdk('onEnabledVitalSigns - доступные показатели', vitalSigns)
+  }, [])
+
+  // Callback для офлайн измерений
+  const onOfflineMeasurement = useCallback((offlineMeasurements) => {
+    logger.sdk('onOfflineMeasurement - офлайн измерения', offlineMeasurements)
+  }, [])
+
+  // Callback для изменения состояния сессии
+  const onStateChange = useCallback((state) => {
+    logger.session('onStateChange - изменение состояния сессии', state)
+    setSessionState(state)
+    
+    if (state === SessionState.ACTIVE) {
+      setIsLoading(false)
+      setInstructionText('Поместите лицо в овал и не двигайтесь')
+    } else if (state === SessionState.MEASURING) {
+      setIsMeasuring(true)
+      setMeasurementStartTime(Date.now())
+      setScanProgress(0)
+      setScanStage(scanStages[0].text)
+    } else if (state === SessionState.STOPPING) {
+      setIsMeasuring(false)
+    } else if (state === SessionState.TERMINATED) {
+      setIsMeasuring(false)
+      setIsLoading(false)
+    }
+  }, [])
+
+  // Автоматический запуск измерения когда лицо валидно и сессия активна
+  useEffect(() => {
+    if (sessionState === SessionState.ACTIVE && isFaceValid && !isMeasuring && sessionRef.current) {
+      // Небольшая задержка для стабилизации
+      const timer = setTimeout(() => {
+        if (sessionState === SessionState.ACTIVE && isFaceValid && !isMeasuring) {
+            try {
+            logger.session('start - запуск измерения')
+            sessionRef.current.start()
+          } catch (err) {
+            logger.error('Error starting measurement - ошибка запуска измерения', err)
+            setError('Не удалось начать измерение')
           }
         }
-      } catch (err) {
-        setError('Не удалось получить доступ к камере. Проверьте разрешения.')
-        console.error(err)
-        setIsLoading(false)
+      }, 1000) // Задержка 1 секунда для стабилизации
+
+      return () => clearTimeout(timer)
+    }
+  }, [sessionState, isFaceValid, isMeasuring])
+
+  // Callback для валидации изображения
+  const onImageData = useCallback((imageValidity) => {
+    // Логируем только изменения статуса (чтобы не засорять консоль)
+    if (imageValidity !== ImageValidity.VALID) {
+      logger.debug('onImageData - изображение невалидно', { imageValidity })
+    }
+    if (imageValidity === ImageValidity.VALID) {
+      setIsFaceDetected(true)
+      setIsFaceValid(true)
+      if (sessionState === SessionState.ACTIVE && !isMeasuring) {
+        setInstructionText('Отлично! Нажмите для начала измерения')
+      }
+    } else {
+      setIsFaceValid(false)
+      let message = 'Поместите лицо в овал'
+      
+      switch (imageValidity) {
+        case ImageValidity.INVALID_DEVICE_ORIENTATION:
+          message = 'Неподдерживаемая ориентация устройства'
+          break
+        case ImageValidity.TILTED_HEAD:
+          message = 'Голова наклонена. Смотрите прямо в камеру'
+          break
+        case ImageValidity.UNEVEN_LIGHT:
+          message = 'Неравномерное освещение. Встаньте напротив источника света'
+          break
+        case ImageValidity.INVALID_ROI:
+        default:
+          message = 'Лицо не обнаружено. Поместите лицо в овал'
+          setIsFaceDetected(false)
+          break
+      }
+      
+      if (!isMeasuring) {
+        setInstructionText(message)
       }
     }
+  }, [sessionState, isMeasuring])
 
-    async function startFaceDetection() {
-      if (!videoRef.current) {
-        console.log('Видео не готово')
-        return
-      }
-      if (!modelRef.current) {
-        console.log('Модель не загружена, ожидание...')
-        // Ждем загрузки модели
-        const checkModel = setInterval(() => {
-          if (modelRef.current) {
-            clearInterval(checkModel)
-            startFaceDetection()
-          }
-        }, 100)
-        return
-      }
+  // Инициализация SDK и создание сессии
+  useEffect(() => {
+    let stream = null
+    const streamRef = { current: null } // Ref для доступа к stream из callbacks
+    isMounted.current = true
 
-      const video = videoRef.current
-      const model = modelRef.current
-
-      console.log('Начало отслеживания лица', {
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight,
-        readyState: video.readyState
-      })
-
-      // Создаем скрытый canvas для обработки
-      if (!canvasRef.current) {
-        const canvas = document.createElement('canvas')
-        canvas.width = video.videoWidth || 640
-        canvas.height = video.videoHeight || 480
-        canvasRef.current = canvas
-        console.log('Canvas создан:', canvas.width, 'x', canvas.height)
-      }
-
-      const canvas = canvasRef.current
-      const ctx = canvas.getContext('2d')
-
-      async function detectFace() {
-        if (!video || !model) {
-          animationFrameRef.current = requestAnimationFrame(detectFace)
+    async function initSDK() {
+      try {
+        // Проверяем наличие license key
+        if (!SDK_CONFIG.licenseKey || SDK_CONFIG.licenseKey.trim() === '') {
+          logger.warn('License key не установлен. SDK не будет работать.')
+          setError('License key не установлен. Пожалуйста, настройте SDK_CONFIG в src/config/sdkConfig.js')
+          setIsLoading(false)
+          return
+        }
+        
+        // Проверяем формат license key (должен содержать дефисы)
+        const licenseKeyTrimmed = SDK_CONFIG.licenseKey.trim()
+        if (!licenseKeyTrimmed.includes('-')) {
+          logger.warn('License key имеет неправильный формат (должен содержать дефисы)')
+          setError('License key имеет неправильный формат. Проверьте формат ключа.')
+          setIsLoading(false)
           return
         }
 
-        if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-          animationFrameRef.current = requestAnimationFrame(detectFace)
+        logger.group('SDK Initialization', () => {
+          logger.info('Начало инициализации SDK', {
+            hasLicenseKey: !!SDK_CONFIG.licenseKey,
+            processingTime,
+          })
+        })
+
+        // Инициализация SDK с обработкой лицензионной информации
+        const initStartTime = Date.now()
+        
+        // Согласно документации SDK, productId не передается в initialize
+        // SDK использует licenseKey для активации
+        logger.debug('Инициализация SDK с параметрами', {
+          hasLicenseKey: !!SDK_CONFIG.licenseKey,
+          licenseKeyLength: SDK_CONFIG.licenseKey?.length || 0,
+          licenseKeyPreview: SDK_CONFIG.licenseKey ? `${SDK_CONFIG.licenseKey.substring(0, 10)}...` : 'empty',
+        })
+        
+        await healthMonitorManager.initialize({
+          licenseKey: SDK_CONFIG.licenseKey.trim(),
+          licenseInfo: {
+            onEnabledVitalSigns,
+            onOfflineMeasurement,
+            onActivation,
+          },
+        })
+        logger.perf('SDK initialization', Date.now() - initStartTime)
+        logger.sdk('initialize - SDK успешно инициализирован')
+        
+        if (!isMounted.current) return
+
+        // Получение доступа к камере
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setError('Ваше устройство не поддерживает доступ к камере.')
+          setIsLoading(false)
           return
         }
 
         try {
-          // Обновляем размеры canvas если нужно
-          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-            canvas.width = video.videoWidth
-            canvas.height = video.videoHeight
+          logger.info('Запрос доступа к камере')
+          const cameraStartTime = Date.now()
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment' },
+            audio: false,
+          })
+          logger.perf('Camera access granted', cameraStartTime)
+          logger.info('Доступ к камере получен')
+
+          // Получаем ID камеры
+          const devices = await navigator.mediaDevices.enumerateDevices()
+          const videoDevices = devices.filter((device) => device.kind === 'videoinput')
+          if (videoDevices.length > 0) {
+            cameraIdRef.current = videoDevices[0].deviceId
+            logger.debug('Камера выбрана', { 
+              deviceId: cameraIdRef.current,
+              totalDevices: videoDevices.length 
+            })
           }
 
-          // Обнаруживаем лица напрямую из видео
-          const predictions = await model.estimateFaces(video, false)
-          
-          if (predictions.length > 0) {
-            setIsFaceDetected(true)
-            const face = predictions[0]
-
-            // Получаем размеры видео
-            const videoWidth = video.videoWidth || canvas.width
-            const videoHeight = video.videoHeight || canvas.height
-            const videoAspect = videoWidth / videoHeight
-
-            // Получаем реальные размеры SVG овала на экране
-            const screenWidth = window.innerWidth
-            const screenHeight = window.innerHeight
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream
             
-            // Параметры овала из SVG (viewBox: 298x409, ellipse: cx=149, cy=204.5, rx=143, ry=198.5)
-            const svgViewBoxWidth = 298
-            const svgViewBoxHeight = 409
-            const svgOvalCenterX = 149
-            const svgOvalCenterY = 204.5
-            const svgOvalRadiusX = 143
-            const svgOvalRadiusY = 198.5
-
-            // Получаем реальные размеры SVG элемента на экране
-            let ovalScreenWidth = Math.min(298, screenWidth * 0.8)
-            let ovalScreenHeight = (svgViewBoxHeight / svgViewBoxWidth) * ovalScreenWidth
-            
-            // Если SVG элемент существует, используем его реальные размеры
-            if (ovalRef.current) {
-              const rect = ovalRef.current.getBoundingClientRect()
-              ovalScreenWidth = rect.width
-              ovalScreenHeight = rect.height
-            }
-
-            // Масштаб для перевода координат SVG в координаты экрана
-            const scaleX = ovalScreenWidth / svgViewBoxWidth
-            const scaleY = ovalScreenHeight / svgViewBoxHeight
-
-            // Центр овала на экране (центр SVG элемента)
-            const ovalScreenX = screenWidth / 2
-            const ovalScreenY = screenHeight / 2
-
-            // Радиусы овала на экране (пересчитанные из SVG)
-            const ovalRadiusX = svgOvalRadiusX * scaleX
-            const ovalRadiusY = svgOvalRadiusY * scaleY
-
-            // Преобразуем координаты видео в координаты экрана
-            const videoDisplayWidth = screenWidth
-            const videoDisplayHeight = screenWidth / videoAspect
-            const videoDisplayOffsetY = (screenHeight - videoDisplayHeight) / 2
-
-            // Преобразуем границы лица в координаты экрана
-            const faceTopLeftScreenX = (face.topLeft[0] / videoWidth) * videoDisplayWidth
-            const faceTopLeftScreenY = (face.topLeft[1] / videoHeight) * videoDisplayHeight + videoDisplayOffsetY
-            const faceBottomRightScreenX = (face.bottomRight[0] / videoWidth) * videoDisplayWidth
-            const faceBottomRightScreenY = (face.bottomRight[1] / videoHeight) * videoDisplayHeight + videoDisplayOffsetY
-
-            // Получаем центр лица
-            const faceCenterX = (faceTopLeftScreenX + faceBottomRightScreenX) / 2
-            const faceCenterY = (faceTopLeftScreenY + faceBottomRightScreenY) / 2
-
-            // Размеры лица
-            const faceWidth = faceBottomRightScreenX - faceTopLeftScreenX
-            const faceHeight = faceBottomRightScreenY - faceTopLeftScreenY
-
-            // Проверяем, что лицо находится внутри овала
-            // Используем уравнение эллипса: (x-cx)²/a² + (y-cy)²/b² <= 1
-            const a = ovalRadiusX
-            const b = ovalRadiusY
-
-            // Проверяем точки лица с настраиваемым допуском
-            const checkPoint = (x, y) => {
-              const dx = (x - ovalScreenX) / a
-              const dy = (y - ovalScreenY) / b
-              return (dx * dx + dy * dy) <= faceDetectionConfig.pointTolerance
-            }
-
-            // Проверяем центр лица (главный критерий)
-            const centerIn = checkPoint(faceCenterX, faceCenterY)
-
-            // Проверяем углы лица (должно быть минимум 3 из 4 внутри)
-            const topLeftIn = checkPoint(faceTopLeftScreenX, faceTopLeftScreenY)
-            const topRightIn = checkPoint(faceBottomRightScreenX, faceTopLeftScreenY)
-            const bottomLeftIn = checkPoint(faceTopLeftScreenX, faceBottomRightScreenY)
-            const bottomRightIn = checkPoint(faceBottomRightScreenX, faceBottomRightScreenY)
-
-            const cornersIn = [topLeftIn, topRightIn, bottomLeftIn, bottomRightIn].filter(Boolean).length
-            const mostCornersIn = cornersIn >= faceDetectionConfig.minCornersInOval
-
-            // Проверяем размер лица с настраиваемыми границами
-            const ovalWidthForSize = ovalRadiusX * 2
-            const ovalHeightForSize = ovalRadiusY * 2
-            const faceSizeRatio = Math.max(faceWidth / ovalWidthForSize, faceHeight / ovalHeightForSize)
-            const sizeValid = faceSizeRatio >= faceDetectionConfig.minFaceSize && 
-                            faceSizeRatio <= faceDetectionConfig.maxFaceSize
-
-            // Лицо считается в овале, если центр внутри И большинство углов внутри И размер подходящий
-            const inOval = centerIn && mostCornersIn && sizeValid
-
-            // Проверка стабильности: лицо должно быть в овале несколько кадров подряд
-            if (inOval) {
-              stabilityRef.current += 1
-            } else {
-              stabilityRef.current = 0
+            // Обработка ошибок видео
+            videoRef.current.onerror = (err) => {
+              logger.error('Video error - ошибка загрузки видео', err)
+              setError('Ошибка загрузки видео')
+              setIsLoading(false)
             }
             
-            // Лицо считается стабильно в овале только после нескольких кадров
-            const isStableInOval = stabilityRef.current >= faceDetectionConfig.stabilityFrames
+            videoRef.current.onloadedmetadata = async () => {
+              logger.info('Video metadata loaded - метаданные видео загружены', {
+                width: videoRef.current.videoWidth,
+                height: videoRef.current.videoHeight,
+              })
+              
+              // Защита от множественного создания сессий
+              if (!isMounted.current || !videoRef.current) {
+                logger.warn('Пропуск создания сессии: компонент размонтирован или видео недоступно')
+                return
+              }
+              
+              // Если сессия уже существует, завершаем её перед созданием новой
+              if (sessionRef.current) {
+                logger.warn('Завершение существующей сессии перед созданием новой')
+                try {
+                  await sessionRef.current.terminate()
+                  sessionRef.current = null
+                } catch (err) {
+                  logger.error('Ошибка при завершении существующей сессии', err)
+                }
+              }
+              
+              // Если сессия уже создается, не создаем новую
+              if (isCreatingSessionRef.current) {
+                logger.warn('Пропуск создания сессии: сессия уже создается')
+                return
+              }
+              
+              // Устанавливаем флаг создания сессии
+              isCreatingSessionRef.current = true
+              
+              // Подготовка данных пользователя для SDK
+              const userInformation = userData.age && userData.gender ? {
+                sex: userData.gender === 'MALE' ? Sex.MALE : userData.gender === 'FEMALE' ? Sex.FEMALE : Sex.UNSPECIFIED,
+                age: userData.age,
+                weight: userData.weight || null,
+                height: userData.height || null,
+                smokingStatus: userData.smokingStatus === 'SMOKER' ? SmokingStatus.SMOKER : 
+                              userData.smokingStatus === 'NON_SMOKER' ? SmokingStatus.NON_SMOKER : 
+                              SmokingStatus.UNSPECIFIED,
+              } : null
 
-            setIsFaceInOval(isStableInOval)
+              logger.info('Подготовка данных пользователя для SDK', {
+                hasUserData: !!userInformation,
+                age: userInformation?.age,
+                gender: userInformation?.sex,
+              })
+              
+              // Предупреждение, если данные пользователя отсутствуют
+              if (!userInformation) {
+                logger.warn('Данные пользователя не найдены. SDK будет работать, но ASCVD Risk и Heart Age не будут рассчитаны. Убедитесь, что вы прошли через страницу настроек алгоритма.')
+              }
 
-            // Обновляем текст инструкции в зависимости от состояния
-            // Если идет сканирование, текст управляется через scanStage
-            if (!scanProgress || scanProgress === 0) {
-              if (isStableInOval) {
-                setInstructionText('Отлично! Держите лицо неподвижно')
-              } else if (inOval && !isStableInOval) {
-                setInstructionText('Держите лицо неподвижно...')
-              } else if (isFaceDetected) {
-                setInstructionText('Поместите лицо в овал и не двигайтесь')
-              } else {
-                setInstructionText('Поместите лицо в овал')
+              // Создание сессии
+              try {
+                if (!isMounted.current) {
+                  isCreatingSessionRef.current = false
+                  return
+                }
+                
+                logger.info('Создание сессии SDK', {
+                  hasVideo: !!videoRef.current,
+                  cameraId: cameraIdRef.current,
+                  processingTime,
+                  hasUserInfo: !!userInformation,
+                })
+                
+                const sessionStartTime = Date.now()
+                const options = {
+                  input: videoRef.current,
+                  cameraDeviceId: cameraIdRef.current,
+                  processingTime,
+                  onVitalSign,
+                  onFinalResults,
+                  onError,
+                  onWarning,
+                  onStateChange,
+                  onImageData,
+                  orientation: DeviceOrientation.PORTRAIT,
+                  strictMeasurementGuidance: true,
+                  ...(userInformation && { userInformation }),
+                }
+
+                const faceSession = await healthMonitorManager.createFaceSession(options)
+                logger.perf('Session creation', Date.now() - sessionStartTime)
+                
+                if (!isMounted.current) {
+                  // Если компонент размонтирован, завершаем сессию
+                  logger.warn('Компонент размонтирован до завершения создания сессии')
+                  await faceSession.terminate()
+                  isCreatingSessionRef.current = false
+                  return
+                }
+                
+                sessionRef.current = faceSession
+                isCreatingSessionRef.current = false
+                logger.session('createFaceSession - сессия успешно создана')
+              } catch (err) {
+                isCreatingSessionRef.current = false
+                logger.error('Error creating session - ошибка создания сессии', err)
+                
+                // Не показываем ошибку сразу, даем SDK попробовать активироваться
+                // Ошибка будет показана через onError callback
+                if (err.errorCode === 1001 || err.errorCode === 1002 || err.errorCode === 1003) {
+                  setError('Ошибка лицензии. Проверьте license key.')
+                } else {
+                  setError(`Ошибка создания сессии: ${err.message || 'Неизвестная ошибка'}`)
+                }
+                setIsLoading(false)
               }
             }
-          } else {
-            setIsFaceDetected(false)
-            setIsFaceInOval(false)
-            stabilityRef.current = 0 // Сбрасываем счетчик стабильности
-            setInstructionText('Поместите лицо в овал')
           }
         } catch (err) {
-          console.error('Ошибка обнаружения лица:', err)
+          logger.error('Не удалось получить доступ к камере', err)
+          setError('Не удалось получить доступ к камере. Проверьте разрешения.')
+          setIsLoading(false)
         }
-
-        animationFrameRef.current = requestAnimationFrame(detectFace)
+      } catch (err) {
+        logger.error('Error initializing SDK - ошибка инициализации SDK', err)
+        setError(`Ошибка инициализации SDK: ${err.message || 'Проверьте license key'}`)
+        setIsLoading(false)
       }
-
-      // Запускаем обнаружение с небольшой задержкой для стабилизации видео
-      setTimeout(() => {
-        detectFace()
-      }, 500)
     }
 
-    initCamera()
+    initSDK()
 
     return () => {
+      isMounted.current = false
+      isCreatingSessionRef.current = false
+      logger.debug('Camera component unmounting - размонтирование компонента')
       if (stream) {
         stream.getTracks().forEach((track) => track.stop())
+        logger.debug('Camera stream stopped - поток камеры остановлен')
       }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
+      if (sessionRef.current) {
+        logger.session('terminate - завершение сессии при размонтировании')
+        sessionRef.current.terminate().catch((err) => {
+          logger.error('Ошибка при завершении сессии при размонтировании', err)
+        })
+        sessionRef.current = null
       }
     }
   }, [])
 
-  // Определяем цвет овала: синий во время сканирования, зеленый когда готов, желтый когда не в овале
-  const ovalColorClass = scanProgress > 0
+
+  // Определяем цвет овала
+  const ovalColorClass = isMeasuring
     ? 'face-oval-scanning'
-    : isFaceInOval
+    : isFaceValid
       ? 'face-oval-success'
       : isFaceDetected
         ? 'face-oval-warning'
         : 'face-oval-default'
   
-  // Вычисляем длину дуги для прогресс-бара (в процентах от окружности)
-  // Прогресс идет по часовой стрелке, начиная сверху
-  // Формула Рамануджана для приблизительной длины эллипса: π * [3(a+b) - sqrt((3a+b)(a+3b))]
-  const a = 143 // Радиус по X
-  const b = 198.5 // Радиус по Y
+  // Вычисляем длину дуги для прогресс-бара
+  const a = 143
+  const b = 198.5
   const circumference = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)))
-  
-  // Создаем path для овала, начинающийся сверху и идущий по часовой стрелке
-  // Начальная точка: (149, 6) - верхняя точка эллипса (cy - ry = 204.5 - 198.5 = 6)
-  // Нижняя точка: (149, 403) - нижняя точка эллипса (cy + ry = 204.5 + 198.5 = 403)
-  // Используем две дуги для полного обхода эллипса по часовой стрелке
   const ovalPath = `M 149 6 A ${a} ${b} 0 1 1 149 403 A ${a} ${b} 0 1 1 149 6`
-  
-  // Вычисляем offset для stroke-dasharray (начинаем сверху, идем по часовой стрелке)
   const progressOffset = circumference - (circumference * scanProgress) / 100
 
   return (
@@ -449,7 +562,7 @@ function Camera() {
         {isLoading && (
           <div className="camera-loading-container">
             <div className="camera-loading-spinner"></div>
-            <p className="camera-loading-text">Запрашиваем доступ к камере...</p>
+            <p className="camera-loading-text">Инициализация камеры...</p>
           </div>
         )}
         {error && <p className="error-text">{error}</p>}
@@ -485,7 +598,6 @@ function Camera() {
                 <g mask="url(#mask0_138_3429)">
                   <ellipse cx="149.5" cy="204.5" rx="154.5" ry="210.5" fill="#D3E8F4"/>
                 </g>
-                {/* Прогресс-бар по овалу - точно следует контуру овала */}
                 {scanProgress > 0 && (
                   <path
                     d={ovalPath}
@@ -501,7 +613,6 @@ function Camera() {
                     }}
                   />
                 )}
-                {/* Основной контур овала */}
                 <ellipse 
                   cx="149" 
                   cy="204.5" 
@@ -550,4 +661,3 @@ function Camera() {
 }
 
 export default Camera
-
