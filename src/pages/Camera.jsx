@@ -308,6 +308,21 @@ function Camera() {
 
     async function initSDK() {
       try {
+        // КРИТИЧЕСКАЯ ПРОВЕРКА: cross-origin isolation для SharedArrayBuffer
+        if (typeof self !== 'undefined' && !self.crossOriginIsolated) {
+          const errorMsg = 'ОШИБКА: Заголовки COOP/COEP не установлены. SDK требует cross-origin isolation для работы SharedArrayBuffer. Проверьте конфигурацию сервера (vercel.json для Vercel).'
+          logger.error('crossOriginIsolated === false', {
+            userAgent: navigator.userAgent,
+            location: window.location.href,
+            hint: 'Убедитесь, что заголовки Cross-Origin-Opener-Policy: same-origin и Cross-Origin-Embedder-Policy: require-corp установлены на сервере',
+          })
+          setError(errorMsg)
+          setIsLoading(false)
+          return
+        }
+        
+        logger.info('crossOriginIsolated проверка пройдена', { crossOriginIsolated: self.crossOriginIsolated })
+        
         // Проверяем наличие license key
         if (!SDK_CONFIG.licenseKey || SDK_CONFIG.licenseKey.trim() === '') {
           logger.warn('License key не установлен. SDK не будет работать.')
