@@ -11,7 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@biosensesignal/web-sdk": "file:WEB SDK 5.11.1 RUS/biosensesignal-web-sdk-v5.11.1-1.tgz",
+  "@biosensesignal/web-sdk": "file:vendor/biosensesignal/biosensesignal-web-sdk-v5.11.1-1.tgz",
     "@tensorflow-models/blazeface": "^0.1.0",
     "@tensorflow/tfjs": "^4.22.0",
     "@twa-dev/sdk": "^8.0.2",
