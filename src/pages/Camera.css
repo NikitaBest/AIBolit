@@ -63,6 +63,12 @@
   }
 }
 
+@keyframes dash {
+  to {
+    stroke-dashoffset: -30;
+  }
+}
+
 .camera-loading-text {
   color: #fff;
   font-size: clamp(16px, 4vw, 18px);
@@ -113,6 +119,10 @@
   object-fit: contain;
   color: #D3E8F4;
   transition: color 0.3s ease;
+}
+
+.face-oval-default {
+  color: #D3E8F4;
 }
 
 .face-oval-warning {
