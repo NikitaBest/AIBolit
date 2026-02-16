@@ -19,7 +19,7 @@ setTimeout(() => {
       
       // Настройка цветовой схемы (фон в зависимости от темы Telegram)
       const isDark = tg.colorScheme === 'dark'
-      const bgColor = isDark ? '#000000' : '#FFFFFF'
+      const bgColor = isDark ? '#2A3A45' : '#FFFFFF'
 
       tg.setHeaderColor(bgColor)
       tg.setBackgroundColor(bgColor)

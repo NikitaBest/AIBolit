@@ -1,9 +1,9 @@
 :root {
   /* Базовые токены (по умолчанию тёмная тема) */
-  --color-bg-main: #000000;
-  --color-bg-surface: #111111;
+  --color-bg-main: #2A3A45;
+  --color-bg-surface: #232F37;
   --color-bg-accent: #0078ff;
-  --color-bg-accent-soft: #1a1a1a;
+  --color-bg-accent-soft: #354652;
 
   --color-fg-primary: rgba(255, 255, 255, 0.92);
   --color-fg-secondary: rgba(255, 255, 255, 0.72);
@@ -35,11 +35,11 @@
   --color-fg-secondary: #555555;
 }
 
-/* Тёмная тема: почти чёрный фон страниц */
+/* Тёмная тема: фон #2A3A45 */
 :root[data-theme='dark'] {
-  --color-bg-main: #000000;
-  --color-bg-surface: #111111;
-  --color-bg-accent-soft: #1a1a1a;
+  --color-bg-main: #2A3A45;
+  --color-bg-surface: #232F37;
+  --color-bg-accent-soft: #354652;
 
   --color-fg-primary: rgba(255, 255, 255, 0.92);
   --color-fg-secondary: rgba(255, 255, 255, 0.72);
