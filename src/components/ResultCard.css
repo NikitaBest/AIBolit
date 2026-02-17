@@ -39,6 +39,15 @@
   min-width: 0;
 }
 
+@keyframes result-card-icon-breathe {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
 .result-card-block__icon-wrap {
   flex-shrink: 0;
   width: 32px;
@@ -50,6 +59,8 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  transform-origin: center;
+  animation: result-card-icon-breathe 3s ease-in-out infinite;
 }
 
 .result-card-block__icon {

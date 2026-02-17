@@ -853,13 +853,21 @@ function Camera() {
 
               // Устанавливаем флаг создания сессии
               isCreatingSessionRef.current = true
-              
+
+              // SDK принимает рост только 130–230 см. Нормализуем: если в метрах (< 3) — в см, затем ограничиваем диапазон
+              const rawHeight = userData.height != null ? Number(userData.height) : null
+              let heightCm = null
+              if (rawHeight != null && !Number.isNaN(rawHeight)) {
+                const inCm = rawHeight < 3 ? rawHeight * 100 : rawHeight
+                heightCm = Math.round(Math.min(230, Math.max(130, inCm)))
+              }
+
               // Подготовка данных пользователя для SDK
               const userInformation = userData.age && userData.gender ? {
                 sex: userData.gender === 'MALE' ? Sex.MALE : userData.gender === 'FEMALE' ? Sex.FEMALE : Sex.UNSPECIFIED,
                 age: userData.age,
                 weight: userData.weight || null,
-                height: userData.height || null,
+                height: heightCm,
                 smokingStatus: userData.smokingStatus === 'SMOKER' ? SmokingStatus.SMOKER : 
                               userData.smokingStatus === 'NON_SMOKER' ? SmokingStatus.NON_SMOKER : 
                               SmokingStatus.UNSPECIFIED,
@@ -955,13 +963,13 @@ function Camera() {
               } catch (err) {
                 isCreatingSessionRef.current = false
                 logger.error('Error creating session - ошибка создания сессии', err)
-                
-                // Не показываем ошибку сразу, даем SDK попробовать активироваться
-                // Ошибка будет показана через onError callback
+                const msg = err.message || ''
                 if (err.errorCode === 1001 || err.errorCode === 1002 || err.errorCode === 1003) {
                   setError('Ошибка лицензии. Проверьте license key.')
-            } else {
-                  setError(`Ошибка создания сессии: ${err.message || 'Неизвестная ошибка'}`)
+                } else if (msg.includes('user height') && msg.includes('130') && msg.includes('230')) {
+                  setError('Рост должен быть от 130 до 230 см. Проверьте данные в настройках алгоритма.')
+                } else {
+                  setError(`Ошибка создания сессии: ${msg || 'Неизвестная ошибка'}`)
                 }
                 setIsLoading(false)
               }
