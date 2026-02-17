@@ -20,6 +20,60 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   /* Стабильные размеры — блок не смещается */
   contain: layout;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Вектор за текстом (блок пульса): по краям слева и справа, по вертикали по центру */
+.result-card-block__bg-vector {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.result-card-block__bg-vector-img {
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center center;
+}
+
+/* Лёгкое размытие снизу, плавный переход к центру (только при фоновом векторе) */
+.result-card-block__blur-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 75%;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(230, 250, 251, 0.8), rgba(230, 250, 251, 0.2), transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 0 0 16px 16px;
+  mask-image: linear-gradient(to top, black, transparent 70%);
+  -webkit-mask-image: linear-gradient(to top, black, transparent 70%);
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+}
+
+.result-card-block__content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 0;
 }
 
 @media (min-width: 400px) {
@@ -28,6 +82,12 @@
     padding: 16px 12px;
     gap: 10px;
     border-radius: 24px;
+  }
+  .result-card-block__blur-bottom {
+    border-radius: 0 0 24px 24px;
+  }
+  .result-card-block__content {
+    gap: 10px;
   }
 }
 

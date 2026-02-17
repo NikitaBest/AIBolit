@@ -240,6 +240,8 @@ function Results() {
               value={pulseRateValue ?? pulseRate?.value ?? pulseRate}
               unit="уд/мин"
               confidence={pulseRate?.confidence}
+              backgroundColor="#E6FAFB"
+              backgroundVector="/Vector%201.svg"
             />
           )}
 
