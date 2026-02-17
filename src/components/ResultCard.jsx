@@ -30,8 +30,10 @@ function ResultCard({ label, value, unit, confidence, icon, backgroundColor, bac
           )}
           {label && <div className="result-card-block__label">{label}</div>}
         </div>
-        <div className="result-card-block__value">{value ?? '—'}</div>
-        {unit && <div className="result-card-block__unit">{unit}</div>}
+        <div className="result-card-block__value-row">
+          <span className="result-card-block__value">{value ?? '—'}</span>
+          {unit && <span className="result-card-block__unit">{unit}</span>}
+        </div>
         {confidence != null && (
           <div className="result-card-block__confidence">
             Уверенность: {typeof confidence === 'number' ? Math.round(confidence * 100) : confidence}%

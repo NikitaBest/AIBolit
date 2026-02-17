@@ -94,9 +94,13 @@
 .result-card-block__header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   width: 100%;
   min-width: 0;
+}
+
+.result-card-block__header .result-card-block__label {
+  margin-left: 2px;
 }
 
 @keyframes result-card-icon-breathe {
@@ -135,8 +139,18 @@
   color: var(--color-fg-primary, var(--text-secondary, #333333));
   margin: 0;
   line-height: 1.3;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  text-align: left;
+}
+
+.result-card-block__value-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 4px;
+  line-height: 1.2;
+  margin-top: 18px;
 }
 
 .result-card-block__value {
@@ -144,7 +158,6 @@
   font-weight: 600;
   color: var(--color-fg-primary, var(--text-primary, #000000));
   margin: 0;
-  line-height: 1.2;
   word-break: break-word;
 }
 
@@ -152,6 +165,7 @@
   font-size: clamp(0.8rem, 2.2vw, 0.875rem);
   color: var(--color-fg-secondary, var(--text-secondary, #666666));
   margin: 0;
+  flex-shrink: 0;
 }
 
 .result-card-block__confidence {
