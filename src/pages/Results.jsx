@@ -18,6 +18,79 @@ function getScoreOrbFromStress(stressValue) {
   return { score, message: 'Повышенный уровень', label: 'Обратите внимание' }
 }
 
+/** Порядок ключей для отображения (сначала основные, затем остальные по алфавиту). */
+const PREFERRED_METRIC_ORDER = [
+  'pulseRate',
+  'respirationRate',
+  'stressLevel',
+  'bloodPressure',
+  'sdnn',
+  'prq',
+  'wellnessLevel',
+  'wellnessIndex',
+  'hemoglobin',
+  'hemoglobinA1c',
+  'highHemoglobinA1CRisk',
+]
+
+/** Конфиг метрик SDK: подпись, единицы, иконка, опциональный фон. */
+const METRIC_CONFIG = {
+  pulseRate: { label: 'Пульс', unit: 'уд/мин', icon: '/Default.png', backgroundColor: '#E6FAFB', backgroundVector: '/Vector%201.svg' },
+  respirationRate: { label: 'Частота дыхания', unit: 'дых/мин', icon: '/BreathRate.png' },
+  stressLevel: { label: 'Уровень стресса', unit: 'из 10', icon: '/Stress.png' },
+  bloodPressure: { label: 'Артериальное давление', unit: 'мм рт. ст.', icon: '/Pressure.png' },
+  sdnn: { label: 'SDNN', unit: 'мс' },
+  prq: { label: 'PRQ', unit: '' },
+  wellnessLevel: { label: 'Уровень благополучия', unit: '' },
+  wellnessIndex: { label: 'Индекс благополучия', unit: '' },
+  hemoglobin: { label: 'Гемоглобин', unit: 'г/дл' },
+  hemoglobinA1c: { label: 'Гемоглобин A1c', unit: '%' },
+  highHemoglobinA1CRisk: { label: 'Риск высокого HbA1c', unit: '' },
+}
+
+/** Форматирует ключ camelCase в читаемую подпись. */
+function formatMetricLabel(key) {
+  const label = METRIC_CONFIG[key]?.label
+  if (label) return label
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, (s) => s.toUpperCase())
+    .trim()
+}
+
+/** Извлекает значение и уверенность из сырого значения SDK. */
+function extractMetricDisplay(raw) {
+  if (raw === null || raw === undefined) return { displayValue: null, confidence: undefined }
+  let displayValue = raw
+  let confidence = raw?.confidence ?? raw?.confidenceLevel
+
+  if (typeof raw === 'object') {
+    if ('value' in raw && typeof raw.value === 'object' && raw.value !== null) {
+      const v = raw.value
+      if ('systolic' in v && 'diastolic' in v) {
+        const s = typeof v.systolic === 'object' && v.systolic && 'value' in v.systolic ? v.systolic.value : v.systolic
+        const d = typeof v.diastolic === 'object' && v.diastolic && 'value' in v.diastolic ? v.diastolic.value : v.diastolic
+        displayValue = `${s}/${d}`
+      } else {
+        displayValue = raw.value
+      }
+    } else if ('value' in raw) {
+      displayValue = raw.value
+    } else if ('systolic' in raw || 'diastolic' in raw) {
+      const s = typeof raw.systolic === 'object' && raw.systolic && 'value' in raw.systolic ? raw.systolic.value : raw.systolic
+      const d = typeof raw.diastolic === 'object' && raw.diastolic && 'value' in raw.diastolic ? raw.diastolic.value : raw.diastolic
+      displayValue = `${s}/${d}`
+    } else {
+      displayValue = typeof raw.value !== 'undefined' ? raw.value : raw
+    }
+  }
+
+  if (displayValue !== null && typeof displayValue === 'object' && typeof displayValue.toString === 'function' && displayValue.toString() === '[object Object]') {
+    displayValue = null
+  }
+  return { displayValue, confidence }
+}
+
 function Results() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -47,157 +120,43 @@ function Results() {
     )
   }
 
-  const { pulseRate, stressLevel, respirationRate, bloodPressure, sdnn } = results.results
+  // Для шара с баллом используем уровень стресса
+  const stressLevelValue = extractMetricDisplay(results.results?.stressLevel).displayValue
 
-  // Безопасное извлечение значений (SDK может возвращать объекты с value или прямые значения)
-  const getValue = (item) => {
-    if (item === null || item === undefined) return null
-    if (typeof item === 'object' && 'value' in item) {
-      return item.value
-    }
-    // Если это число (включая 0) или строка, возвращаем как есть
-    if (typeof item === 'number' || typeof item === 'string') {
-      return item
-    }
-    return item
-  }
+  // Формируем карточки для всех показателей SDK
+  const cardMetrics = Object.entries(results.results || {})
+    .map(([key, raw]) => {
+      const { displayValue, confidence } = extractMetricDisplay(raw)
+      const hasValue = displayValue !== null && displayValue !== undefined && String(displayValue) !== '[object Object]'
+      if (!hasValue) return null
 
-  const stressLevelValue = getValue(stressLevel)
-  const pulseRateValue = getValue(pulseRate)
-  const respirationRateValue = getValue(respirationRate)
-  const sdnnValue = getValue(sdnn)
-
-  // Детальное логирование для отладки
-  console.log('🔍 ДЕТАЛЬНАЯ ОТЛАДКА ИЗВЛЕЧЕНИЯ ЗНАЧЕНИЙ:', {
-    pulseRate: { raw: pulseRate, extracted: pulseRateValue, type: typeof pulseRate },
-    stressLevel: { raw: stressLevel, extracted: stressLevelValue, type: typeof stressLevel },
-    respirationRate: { raw: respirationRate, extracted: respirationRateValue, type: typeof respirationRate },
-    sdnn: { raw: sdnn, extracted: sdnnValue, type: typeof sdnn },
-    bloodPressure: { raw: bloodPressure, type: typeof bloodPressure },
-  })
-
-  // Обработка bloodPressure (может быть объектом с systolic и diastolic)
-  // ВАЖНО: По логам структура: bloodPressure.value.systolic и bloodPressure.value.diastolic
-  let bloodPressureSystolic = null
-  let bloodPressureDiastolic = null
-  if (bloodPressure) {
-    if (typeof bloodPressure === 'object') {
-      // Сначала проверяем структуру bloodPressure.value.systolic (как в логах)
-      if ('value' in bloodPressure && typeof bloodPressure.value === 'object') {
-        const bpValue = bloodPressure.value
-        if ('systolic' in bpValue && 'diastolic' in bpValue) {
-          bloodPressureSystolic = typeof bpValue.systolic === 'object' && 'value' in bpValue.systolic 
-            ? bpValue.systolic.value 
-            : bpValue.systolic
-          bloodPressureDiastolic = typeof bpValue.diastolic === 'object' && 'value' in bpValue.diastolic 
-            ? bpValue.diastolic.value 
-            : bpValue.diastolic
-        }
-      } else if ('systolic' in bloodPressure && 'diastolic' in bloodPressure) {
-        // Если это объект с systolic и diastolic напрямую
-        bloodPressureSystolic = typeof bloodPressure.systolic === 'object' && 'value' in bloodPressure.systolic 
-          ? bloodPressure.systolic.value 
-          : bloodPressure.systolic
-        bloodPressureDiastolic = typeof bloodPressure.diastolic === 'object' && 'value' in bloodPressure.diastolic 
-          ? bloodPressure.diastolic.value 
-          : bloodPressure.diastolic
+      const config = METRIC_CONFIG[key] || {}
+      return {
+        key,
+        label: formatMetricLabel(key),
+        unit: config.unit ?? '',
+        icon: config.icon,
+        backgroundColor: config.backgroundColor,
+        backgroundVector: config.backgroundVector,
+        value: displayValue,
+        confidence,
       }
-    }
-  }
+    })
+    .filter(Boolean)
 
-  // Формируем список всех показателей SDK для пользовательского отображения
-  const allMetrics = Object.entries(results.results || {}).map(([key, value]) => {
-    let displayValue = value
-    let extra = null
-
-    if (value && typeof value === 'object') {
-      if ('value' in value) {
-        displayValue = value.value
-      } else if ('systolic' in value || 'diastolic' in value) {
-        // Обработка bloodPressure
-        const s = typeof value.systolic === 'object' && value.systolic && 'value' in value.systolic
-          ? value.systolic.value
-          : value.systolic
-        const d = typeof value.diastolic === 'object' && value.diastolic && 'value' in value.diastolic
-          ? value.diastolic.value
-          : value.diastolic
-        displayValue = `${s}/${d}`
-      } else if (value.value && typeof value.value === 'object' && ('systolic' in value.value || 'diastolic' in value.value)) {
-        // Обработка bloodPressure.value.systolic/diastolic
-        const s = value.value.systolic
-        const d = value.value.diastolic
-        displayValue = `${s}/${d}`
-      } else {
-        displayValue = JSON.stringify(value)
-      }
-
-      const rawConfidence = value.confidence ?? value.confidenceLevel
-      if (rawConfidence !== undefined) {
-        if (typeof rawConfidence === 'number') {
-          extra = `${Math.round(rawConfidence * 100)}%`
-        } else {
-          extra = String(rawConfidence)
-        }
-      }
-    }
-
-    return { key, value: displayValue, extra }
+  // Сортируем: сначала в порядке PREFERRED_METRIC_ORDER, остальные по алфавиту
+  cardMetrics.sort((a, b) => {
+    const i = PREFERRED_METRIC_ORDER.indexOf(a.key)
+    const j = PREFERRED_METRIC_ORDER.indexOf(b.key)
+    if (i !== -1 && j !== -1) return i - j
+    if (i !== -1) return -1
+    if (j !== -1) return 1
+    return a.key.localeCompare(b.key)
   })
 
-  // Выводим полные данные в консоль для отладки
-  console.log('📊📊📊 РЕЗУЛЬТАТЫ НА СТРАНИЦЕ RESULTS (можно развернуть в консоли):', {
-    fullResults: results,
-    extractedResults: results.results,
-    pulseRate,
-    stressLevel,
-    respirationRate,
-    bloodPressure,
-    sdnn,
-    allMetrics,
-  })
-  
-  logger.info('Results page displayed', {
-    hasPulseRate: !!pulseRate,
-    hasStressLevel: stressLevelValue !== null && stressLevelValue !== undefined,
-    hasRespirationRate: !!respirationRate,
-    hasBloodPressure: !!bloodPressure,
-    hasSdnn: !!sdnn,
-    stressLevelValue,
-    pulseRateValue,
-    respirationRateValue,
-    sdnnValue,
-    bloodPressureSystolic,
-    bloodPressureDiastolic,
-    note: 'Полные данные можно увидеть в console.log выше'
-  })
+  logger.info('Results page displayed', { cardsCount: cardMetrics.length, stressLevelValue })
 
-  // Проверяем, есть ли хотя бы одно значение для отображения
-  const hasAnyResults = (pulseRateValue !== null && pulseRateValue !== undefined) || 
-                       (respirationRateValue !== null && respirationRateValue !== undefined) ||
-                       (stressLevelValue !== null && stressLevelValue !== undefined) ||
-                       (bloodPressureSystolic !== null && bloodPressureDiastolic !== null) ||
-                       (sdnnValue !== null && sdnnValue !== undefined) ||
-                       (pulseRate && (pulseRate.value !== undefined || typeof pulseRate === 'number')) ||
-                       (respirationRate && (respirationRate.value !== undefined || typeof respirationRate === 'number')) ||
-                       (stressLevel !== undefined && stressLevel !== null) ||
-                       (bloodPressure && (bloodPressure.systolic || bloodPressure.diastolic)) ||
-                       (sdnn && (sdnn.value !== undefined || typeof sdnn === 'number'))
-
-  console.log('🔍 ПРОВЕРКА ОТОБРАЖЕНИЯ:', {
-    hasAnyResults,
-    pulseRateValue,
-    respirationRateValue,
-    stressLevelValue,
-    bloodPressureSystolic,
-    bloodPressureDiastolic,
-    sdnnValue,
-    willRenderPulse: pulseRateValue !== null && pulseRateValue !== undefined || pulseRate,
-    willRenderRespiration: respirationRateValue !== null && respirationRateValue !== undefined || respirationRate,
-    willRenderStress: stressLevelValue !== null && stressLevelValue !== undefined || stressLevel !== undefined,
-    willRenderBP: (bloodPressureSystolic !== null && bloodPressureDiastolic !== null) || bloodPressure,
-    willRenderSdnn: sdnnValue !== null && sdnnValue !== undefined || sdnn,
-  })
-
+  const hasAnyResults = cardMetrics.length > 0
   const orbData = getScoreOrbFromStress(stressLevelValue)
 
   return (
@@ -227,91 +186,25 @@ function Results() {
         />
 
         {!hasAnyResults && (
-          <div style={{ padding: '2rem', textAlign: 'center', color: 'red' }}>
-            ⚠️ ВНИМАНИЕ: Данные есть, но не извлекаются. Проверьте консоль для отладки.
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-fg-error)' }}>
+            Нет данных для отображения. Пройдите измерение заново.
           </div>
         )}
-        
+
         <div className="results-grid">
-          {((pulseRateValue !== null && pulseRateValue !== undefined) || (pulseRate && (pulseRate.value !== undefined || typeof pulseRate === 'number'))) && (
+          {cardMetrics.map((metric) => (
             <ResultCard
-              icon="/Default.png"
-              label="Пульс"
-              value={pulseRateValue ?? pulseRate?.value ?? pulseRate}
-              unit="уд/мин"
-              confidence={pulseRate?.confidence}
-              backgroundColor="#E6FAFB"
-              backgroundVector="/Vector%201.svg"
+              key={metric.key}
+              icon={metric.icon}
+              label={metric.label}
+              value={metric.value}
+              unit={metric.unit || undefined}
+              confidence={metric.confidence}
+              backgroundColor={metric.backgroundColor}
+              backgroundVector={metric.backgroundVector}
             />
-          )}
-
-          {((respirationRateValue !== null && respirationRateValue !== undefined) || (respirationRate && (respirationRate.value !== undefined || typeof respirationRate === 'number'))) && (
-            <ResultCard
-              icon="/BreathRate.png"
-              label="Частота дыхания"
-              value={respirationRateValue ?? respirationRate?.value ?? respirationRate}
-              unit="дых/мин"
-              confidence={respirationRate?.confidence}
-            />
-          )}
-
-          {((stressLevelValue !== null && stressLevelValue !== undefined) || (stressLevel && (stressLevel.value !== undefined || stressLevel !== null))) && (
-            <ResultCard
-              icon="/Stress.png"
-              label="Уровень стресса"
-              value={stressLevelValue ?? stressLevel?.value ?? stressLevel}
-              unit="из 10"
-              confidence={stressLevel?.confidence}
-            />
-          )}
-
-          {((bloodPressureSystolic !== null && bloodPressureDiastolic !== null) ||
-            (bloodPressure?.value?.systolic && bloodPressure?.value?.diastolic) ||
-            (bloodPressure?.systolic && bloodPressure?.diastolic)) && (
-            <ResultCard
-              icon="/Pressure.png"
-              label="Артериальное давление"
-              value={
-                bloodPressureSystolic != null && bloodPressureDiastolic != null
-                  ? `${bloodPressureSystolic}/${bloodPressureDiastolic}`
-                  : bloodPressure?.value?.systolic != null
-                    ? `${bloodPressure.value.systolic}/${bloodPressure.value.diastolic}`
-                    : `${bloodPressure?.systolic}/${bloodPressure?.diastolic}`
-              }
-              unit="мм рт. ст."
-              confidence={bloodPressure?.confidence}
-            />
-          )}
-
-          {((sdnnValue !== null && sdnnValue !== undefined) || (sdnn && (sdnn.value !== undefined || typeof sdnn === 'number'))) && (
-            <ResultCard
-              label="SDNN"
-              value={sdnnValue ?? sdnn?.value ?? sdnn}
-              unit="мс"
-              confidence={sdnn?.confidence}
-            />
-          )}
+          ))}
         </div>
-
-        {/* Все показатели SDK */}
-        {allMetrics && allMetrics.length > 0 && (
-          <div className="results-raw">
-            <h2 className="results-subtitle">Все показатели SDK</h2>
-            <div className="results-raw-list">
-              {allMetrics.map((metric) => (
-                <div key={metric.key} className="results-raw-row">
-                  <div className="results-raw-key">{metric.key}</div>
-                  <div className="results-raw-value">
-                    {metric.value !== undefined && metric.value !== null ? String(metric.value) : '—'}
-                    {metric.extra && (
-                      <span className="results-raw-extra"> (conf: {metric.extra})</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         <div className="results-actions">
           <button onClick={() => navigate('/camera')} className="results-button">
