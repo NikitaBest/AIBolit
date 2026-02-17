@@ -1,12 +1,34 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import Page from '../layout/Page.jsx'
+import ResultCard from '../components/ResultCard.jsx'
+import ScoreOrb from '../components/ScoreOrb.jsx'
 import logger from '../utils/logger.js'
 import './Results.css'
+
+/** Считает основной балл и подписи для шара из уровня стресса (0–10: меньше = лучше). */
+function getScoreOrbFromStress(stressValue) {
+  if (stressValue == null || Number.isNaN(Number(stressValue))) {
+    return { score: null, message: 'Результаты измерения', label: null }
+  }
+  const s = Math.min(10, Math.max(0, Number(stressValue)))
+  const score = Math.round((10 - s) * 10) / 10
+  if (score >= 8) return { score, message: 'Отличный результат!', label: 'У вас наилучший результат' }
+  if (score >= 6) return { score, message: 'Хороший результат', label: 'Показатели в норме' }
+  if (score >= 4) return { score, message: 'Умеренный уровень', label: 'Рекомендуется отдых' }
+  return { score, message: 'Повышенный уровень', label: 'Обратите внимание' }
+}
 
 function Results() {
   const location = useLocation()
   const navigate = useNavigate()
   const results = location.state?.results
+
+  // Пользователь Telegram (аватар и имя для приветствия)
+  const tgUser =
+    typeof window !== 'undefined' && window.Telegram?.WebApp?.initDataUnsafe?.user
+  const userName =
+    tgUser?.first_name || tgUser?.username || 'Пользователь'
+  const userPhotoUrl = tgUser?.photo_url
 
   if (!results || !results.results) {
     logger.warn('Results page accessed without results data')
@@ -176,11 +198,34 @@ function Results() {
     willRenderSdnn: sdnnValue !== null && sdnnValue !== undefined || sdnn,
   })
 
+  const orbData = getScoreOrbFromStress(stressLevelValue)
+
   return (
     <Page>
       <div className="results-page">
-        <h1 className="results-title">Результаты измерения</h1>
-        
+        <div className="results-greeting">
+          <div className="results-greeting-avatar-wrap">
+            {userPhotoUrl ? (
+              <img
+                src={userPhotoUrl}
+                alt=""
+                className="results-greeting-avatar"
+              />
+            ) : (
+              <span className="results-greeting-avatar-placeholder" aria-hidden>
+                {userName.charAt(0).toUpperCase()}
+              </span>
+            )}
+          </div>
+          <p className="results-greeting-text">Привет, {userName}!</p>
+        </div>
+        <ScoreOrb
+          score={orbData.score}
+          maxScore={10}
+          message={orbData.message}
+          label={orbData.label}
+        />
+
         {!hasAnyResults && (
           <div style={{ padding: '2rem', textAlign: 'center', color: 'red' }}>
             ⚠️ ВНИМАНИЕ: Данные есть, но не извлекаются. Проверьте консоль для отладки.
@@ -188,85 +233,62 @@ function Results() {
         )}
         
         <div className="results-grid">
-          {/* Пульс */}
-          {((pulseRateValue !== null && pulseRateValue !== undefined) || (pulseRate && (pulseRate.value !== undefined || typeof pulseRate === 'number'))) ? (
-            <div className="result-card">
-              <div className="result-label">Пульс</div>
-              <div className="result-value">{pulseRateValue ?? (pulseRate?.value ?? pulseRate ?? '—')}</div>
-              <div className="result-unit">уд/мин</div>
-              {pulseRate && typeof pulseRate === 'object' && pulseRate.confidence && (
-                <div className="result-confidence">
-                  Уверенность: {Math.round(pulseRate.confidence * 100)}%
-                </div>
-              )}
-            </div>
-          ) : null}
+          {((pulseRateValue !== null && pulseRateValue !== undefined) || (pulseRate && (pulseRate.value !== undefined || typeof pulseRate === 'number'))) && (
+            <ResultCard
+              icon="/Default.png"
+              label="Пульс"
+              value={pulseRateValue ?? pulseRate?.value ?? pulseRate}
+              unit="уд/мин"
+              confidence={pulseRate?.confidence}
+            />
+          )}
 
-          {/* Частота дыхания */}
-          {((respirationRateValue !== null && respirationRateValue !== undefined) || (respirationRate && (respirationRate.value !== undefined || typeof respirationRate === 'number'))) ? (
-            <div className="result-card">
-              <div className="result-label">Частота дыхания</div>
-              <div className="result-value">{respirationRateValue ?? (respirationRate?.value ?? respirationRate ?? '—')}</div>
-              <div className="result-unit">дых/мин</div>
-              {respirationRate && typeof respirationRate === 'object' && respirationRate.confidence && (
-                <div className="result-confidence">
-                  Уверенность: {Math.round(respirationRate.confidence * 100)}%
-                </div>
-              )}
-            </div>
-          ) : null}
+          {((respirationRateValue !== null && respirationRateValue !== undefined) || (respirationRate && (respirationRate.value !== undefined || typeof respirationRate === 'number'))) && (
+            <ResultCard
+              icon="/BreathRate.png"
+              label="Частота дыхания"
+              value={respirationRateValue ?? respirationRate?.value ?? respirationRate}
+              unit="дых/мин"
+              confidence={respirationRate?.confidence}
+            />
+          )}
 
-          {/* Уровень стресса */}
-          {((stressLevelValue !== null && stressLevelValue !== undefined) || (stressLevel && (stressLevel.value !== undefined || stressLevel !== null))) ? (
-            <div className="result-card">
-              <div className="result-label">Уровень стресса</div>
-              <div className="result-value">{stressLevelValue ?? (stressLevel?.value ?? stressLevel ?? '—')}</div>
-              <div className="result-unit">из 10</div>
-              {stressLevel && typeof stressLevel === 'object' && stressLevel.confidence && (
-                <div className="result-confidence">
-                  Уверенность: {Math.round(stressLevel.confidence * 100)}%
-                </div>
-              )}
-            </div>
-          ) : null}
+          {((stressLevelValue !== null && stressLevelValue !== undefined) || (stressLevel && (stressLevel.value !== undefined || stressLevel !== null))) && (
+            <ResultCard
+              icon="/Stress.png"
+              label="Уровень стресса"
+              value={stressLevelValue ?? stressLevel?.value ?? stressLevel}
+              unit="из 10"
+              confidence={stressLevel?.confidence}
+            />
+          )}
 
-          {/* Артериальное давление */}
-          {((bloodPressureSystolic !== null && bloodPressureDiastolic !== null) || 
-            (bloodPressure && bloodPressure.value && bloodPressure.value.systolic && bloodPressure.value.diastolic) ||
-            (bloodPressure && bloodPressure.systolic && bloodPressure.diastolic)) ? (
-            <div className="result-card">
-              <div className="result-label">Артериальное давление</div>
-              <div className="result-value">
-                {bloodPressureSystolic !== null && bloodPressureDiastolic !== null 
+          {((bloodPressureSystolic !== null && bloodPressureDiastolic !== null) ||
+            (bloodPressure?.value?.systolic && bloodPressure?.value?.diastolic) ||
+            (bloodPressure?.systolic && bloodPressure?.diastolic)) && (
+            <ResultCard
+              icon="/Pressure.png"
+              label="Артериальное давление"
+              value={
+                bloodPressureSystolic != null && bloodPressureDiastolic != null
                   ? `${bloodPressureSystolic}/${bloodPressureDiastolic}`
-                  : bloodPressure?.value?.systolic && bloodPressure?.value?.diastolic
+                  : bloodPressure?.value?.systolic != null
                     ? `${bloodPressure.value.systolic}/${bloodPressure.value.diastolic}`
-                    : bloodPressure?.systolic && bloodPressure?.diastolic
-                      ? `${bloodPressure.systolic}/${bloodPressure.diastolic}`
-                      : '—'}
-              </div>
-              <div className="result-unit">мм рт. ст.</div>
-              {bloodPressure && typeof bloodPressure === 'object' && bloodPressure.confidence && (
-                <div className="result-confidence">
-                  Уверенность: {Math.round(bloodPressure.confidence * 100)}%
-                </div>
-              )}
-            </div>
-          ) : null}
+                    : `${bloodPressure?.systolic}/${bloodPressure?.diastolic}`
+              }
+              unit="мм рт. ст."
+              confidence={bloodPressure?.confidence}
+            />
+          )}
 
-          {/* SDNN */}
-          {((sdnnValue !== null && sdnnValue !== undefined) || (sdnn && (sdnn.value !== undefined || typeof sdnn === 'number'))) ? (
-            <div className="result-card">
-              <div className="result-label">SDNN</div>
-              <div className="result-value">{sdnnValue ?? (sdnn?.value ?? sdnn ?? '—')}</div>
-              <div className="result-unit">мс</div>
-              {sdnn && typeof sdnn === 'object' && sdnn.confidence && (
-                <div className="result-confidence">
-                  Уверенность: {Math.round(sdnn.confidence * 100)}%
-                </div>
-              )}
-            </div>
-          ) : null}
+          {((sdnnValue !== null && sdnnValue !== undefined) || (sdnn && (sdnn.value !== undefined || typeof sdnn === 'number'))) && (
+            <ResultCard
+              label="SDNN"
+              value={sdnnValue ?? sdnn?.value ?? sdnn}
+              unit="мс"
+              confidence={sdnn?.confidence}
+            />
+          )}
         </div>
 
         {/* Все показатели SDK */}

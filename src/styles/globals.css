@@ -95,6 +95,16 @@ button:focus-visible {
   padding: var(--page-padding-y) var(--page-padding-x);
 }
 
+/* Мобилка: симметричные боковые отступы (минимум 12px или safe area) */
+@media (max-width: 768px) {
+  .app-content {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-top: var(--page-padding-y);
+    padding-bottom: var(--page-padding-y);
+  }
+}
+
 .page {
   width: 100%;
   max-width: var(--content-max-width);
@@ -102,6 +112,14 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--page-gap);
+}
+
+@media (max-width: 768px) {
+  .page {
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+  }
 }
 
 .page h1 {
